@@ -1,0 +1,365 @@
+{
+  "_meta": {
+    "description": "Registry of all repositories and their relationships. Tasks reference repo IDs. The executor reads this to inject context into prompts automatically.",
+    "lastUpdated": "2026-04-05",
+    "owner": "Ayush-Puri"
+  },
+  "repos": {
+    "backend": {
+      "name": "backend",
+      "path": "~/Documents/backend",
+      "altPath": "~/Documents/syfe-additional-repo/backend",
+      "description": "Core Syfe backend API — handles accounts, portfolios, transactions, auth",
+      "tech": ["Node.js", "Fastify", "PostgreSQL"],
+      "tier": "critical",
+      "dependsOn": ["product-core-db", "product-api-common", "product-fastify-plugins"],
+      "dependedBy": ["alfred", "caishen", "FMS", "proximus", "www2", "product-mobile-reactnative"],
+      "apis": {
+        "exposes": ["REST /api/v1/*", "internal gRPC"],
+        "consumes": ["product-core-db schemas", "product-api-common utilities"]
+      },
+      "notes": "Central service — changes here ripple across many consumers"
+    },
+    "caishen": {
+      "name": "caishen",
+      "path": "~/Documents/caishen",
+      "altPath": "~/Documents/syfe-additional-repo/caishen",
+      "description": "Investment management, portfolio calculations, rebalancing engine",
+      "tech": ["Node.js", "Fastify"],
+      "tier": "critical",
+      "dependsOn": ["backend", "product-core-db", "product-api-common"],
+      "dependedBy": ["FMS", "alfred"],
+      "apis": {
+        "exposes": ["Portfolio API", "Rebalancing API"],
+        "consumes": ["backend account APIs", "product-core-db models"]
+      }
+    },
+    "alfred": {
+      "name": "alfred",
+      "path": "~/Documents/alfred",
+      "altPath": "~/Documents/syfe-additional-repo/alfred",
+      "description": "Orchestration service — coordinates workflows across services",
+      "tech": ["Node.js"],
+      "tier": "critical",
+      "dependsOn": ["backend", "caishen", "proximus"],
+      "dependedBy": [],
+      "apis": {
+        "exposes": ["Workflow orchestration"],
+        "consumes": ["backend APIs", "caishen APIs", "proximus APIs"]
+      }
+    },
+    "alfred-manifests": {
+      "name": "alfred-manifests",
+      "path": "~/Documents/alfred-manifests",
+      "description": "Kubernetes/deployment manifests for Alfred",
+      "tech": ["YAML", "Helm"],
+      "tier": "infra",
+      "dependsOn": ["alfred"],
+      "dependedBy": []
+    },
+    "FMS": {
+      "name": "FMS",
+      "path": "~/Documents/FMS",
+      "altPath": "~/Documents/syfe-additional-repo/FMS",
+      "description": "Financial Management System — reporting, reconciliation, accounting",
+      "tech": ["Node.js"],
+      "tier": "critical",
+      "dependsOn": ["backend", "caishen", "product-core-db"],
+      "dependedBy": []
+    },
+    "proximus": {
+      "name": "proximus",
+      "path": "~/Documents/syfe-additional-repo/proximus",
+      "description": "API gateway / proxy layer",
+      "tech": ["Node.js"],
+      "tier": "critical",
+      "dependsOn": ["backend"],
+      "dependedBy": ["www2", "product-mobile-reactnative", "alfred"]
+    },
+    "mark8": {
+      "name": "mark8",
+      "path": "~/Documents/mark8",
+      "altPath": "~/Documents/syfe-additional-repo/mark8",
+      "description": "Market data service — prices, benchmarks, indices",
+      "tech": ["Node.js"],
+      "tier": "high",
+      "dependsOn": [],
+      "dependedBy": ["caishen", "backend"]
+    },
+    "product-core-db": {
+      "name": "product-core-db",
+      "path": "~/Documents/syfe-additional-repo/product-core-db",
+      "description": "Shared database schemas, migrations, models (the source of truth for DB)",
+      "tech": ["SQL", "Knex/migrations"],
+      "tier": "critical",
+      "dependsOn": [],
+      "dependedBy": ["backend", "caishen", "FMS"],
+      "notes": "Schema changes here affect all consuming services"
+    },
+    "product-api-common": {
+      "name": "product-api-common",
+      "path": "~/Documents/syfe-additional-repo/product-api-common",
+      "description": "Shared utilities, middleware, types used across backend services",
+      "tech": ["Node.js"],
+      "tier": "high",
+      "dependsOn": [],
+      "dependedBy": ["backend", "caishen", "FMS", "proximus"]
+    },
+    "product-fastify-plugins": {
+      "name": "product-fastify-plugins",
+      "path": "~/Documents/syfe-additional-repo/product-fastify-plugins",
+      "description": "Shared Fastify plugins (auth, logging, validation, etc.)",
+      "tech": ["Node.js", "Fastify"],
+      "tier": "high",
+      "dependsOn": [],
+      "dependedBy": ["backend", "caishen"]
+    },
+    "www2": {
+      "name": "www2",
+      "path": "~/Documents/syfe-additional-repo/www2",
+      "description": "Public website / web app frontend",
+      "tech": ["React", "Next.js"],
+      "tier": "high",
+      "dependsOn": ["proximus", "backend"],
+      "dependedBy": []
+    },
+    "product-mobile-reactnative": {
+      "name": "product-mobile-reactnative",
+      "path": "~/Documents/syfe-additional-repo/product-mobile-reactnative",
+      "description": "Mobile app (iOS/Android)",
+      "tech": ["React Native"],
+      "tier": "high",
+      "dependsOn": ["proximus", "backend"],
+      "dependedBy": []
+    },
+    "product-admin-api": {
+      "name": "product-admin-api",
+      "path": "~/Documents/syfe-additional-repo/product-admin-api",
+      "description": "Internal admin API",
+      "tech": ["Node.js"],
+      "tier": "medium",
+      "dependsOn": ["backend", "product-core-db"],
+      "dependedBy": ["product-admin-web"]
+    },
+    "product-admin-web": {
+      "name": "product-admin-web",
+      "path": "~/Documents/syfe-additional-repo/product-admin-web",
+      "description": "Internal admin dashboard UI",
+      "tech": ["React"],
+      "tier": "medium",
+      "dependsOn": ["product-admin-api"],
+      "dependedBy": []
+    },
+    "bytebase-backend": {
+      "name": "bytebase-backend",
+      "path": "~/Documents/bytebase-backend",
+      "description": "Database change management via Bytebase",
+      "tech": ["Bytebase"],
+      "tier": "infra",
+      "dependsOn": ["product-core-db"],
+      "dependedBy": []
+    },
+    "bytebase-caishen": {
+      "name": "bytebase-caishen",
+      "path": "~/Documents/bytebase-caishen",
+      "description": "Bytebase config for caishen database",
+      "tech": ["Bytebase"],
+      "tier": "infra",
+      "dependsOn": ["caishen"],
+      "dependedBy": []
+    },
+    "api-tests": {
+      "name": "api-tests",
+      "path": "~/Documents/api-tests",
+      "altPath": "~/Documents/syfe-additional-repo/api-tests",
+      "description": "End-to-end API test suites",
+      "tech": ["Node.js", "Jest/Mocha"],
+      "tier": "testing",
+      "dependsOn": ["backend", "caishen", "proximus"],
+      "dependedBy": []
+    },
+    "syfeCli": {
+      "name": "syfeCli",
+      "path": "~/Documents/syfeCli",
+      "altPath": "~/Documents/syfe-additional-repo/syfeCli",
+      "description": "Internal CLI tool",
+      "tech": ["Node.js"],
+      "tier": "tooling",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "syfe-ai-skills": {
+      "name": "syfe-ai-skills",
+      "path": "~/Documents/syfe-additional-repo/syfe-ai-skills",
+      "description": "Claude Code skills for Syfe development",
+      "tech": ["Markdown", "YAML"],
+      "tier": "tooling",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "syfe-mcp-proxy": {
+      "name": "syfe-mcp-proxy",
+      "path": "~/Documents/syfe-additional-repo/syfe-mcp-proxy",
+      "description": "MCP proxy server for Claude integrations",
+      "tech": ["Node.js"],
+      "tier": "tooling",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "syfe-bot": {
+      "name": "syfe-bot",
+      "path": "~/Documents/syfe-additional-repo/syfe-bot",
+      "description": "Slack/chat bot for internal automation",
+      "tech": ["Node.js"],
+      "tier": "tooling",
+      "dependsOn": ["backend"],
+      "dependedBy": []
+    },
+    "chatbot-app": {
+      "name": "chatbot-app",
+      "path": "~/Documents/syfe-additional-repo/chatbot-app",
+      "description": "Customer-facing chatbot application",
+      "tech": ["Node.js"],
+      "tier": "medium",
+      "dependsOn": ["backend"],
+      "dependedBy": []
+    },
+    "syfe-monitoring": {
+      "name": "syfe-monitoring",
+      "path": "~/Documents/syfe-additional-repo/syfe-monitoring",
+      "description": "Monitoring, alerting, observability config",
+      "tech": ["Grafana", "Prometheus", "YAML"],
+      "tier": "infra",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "syfe-helm-values": {
+      "name": "syfe-helm-values",
+      "path": "~/Documents/syfe-additional-repo/syfe-helm-values",
+      "description": "Helm chart values for all services",
+      "tech": ["YAML", "Helm"],
+      "tier": "infra",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "dev-github-workflows": {
+      "name": "dev-github-workflows",
+      "path": "~/Documents/syfe-additional-repo/dev-github-workflows",
+      "description": "Shared GitHub Actions workflows",
+      "tech": ["YAML", "GitHub Actions"],
+      "tier": "infra",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "product-github-actions": {
+      "name": "product-github-actions",
+      "path": "~/Documents/syfe-additional-repo/product-github-actions",
+      "description": "Custom GitHub Actions",
+      "tech": ["YAML", "JavaScript"],
+      "tier": "infra",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "backend-dev-utils": {
+      "name": "backend-dev-utils",
+      "path": "~/Documents/syfe-additional-repo/backend-dev-utils",
+      "description": "Development utilities and scripts for backend",
+      "tech": ["Node.js", "Shell"],
+      "tier": "tooling",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "stf": {
+      "name": "stf",
+      "path": "~/Documents/stf",
+      "altPath": "~/Documents/syfe-additional-repo/stf",
+      "description": "Syfe Test Framework",
+      "tech": ["Node.js"],
+      "tier": "testing",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "svava-router": {
+      "name": "svava-router",
+      "path": "~/Documents/svava-router",
+      "altPath": "~/Documents/syfe-additional-repo/svava-router",
+      "description": "Request routing service",
+      "tech": ["Node.js"],
+      "tier": "high",
+      "dependsOn": [],
+      "dependedBy": ["proximus"]
+    },
+    "data-swanalytics": {
+      "name": "data-swanalytics",
+      "path": "~/Documents/syfe-additional-repo/data-swanalytics",
+      "description": "Data analytics and reporting",
+      "tech": ["Python"],
+      "tier": "medium",
+      "dependsOn": ["product-core-db"],
+      "dependedBy": []
+    },
+    "product-onboarding-ui": {
+      "name": "product-onboarding-ui",
+      "path": "~/Documents/syfe-additional-repo/product-onboarding-ui",
+      "description": "User onboarding flow UI",
+      "tech": ["React"],
+      "tier": "medium",
+      "dependsOn": ["proximus", "backend"],
+      "dependedBy": []
+    },
+    "nouri": {
+      "name": "nouri",
+      "path": "~/Documents/syfe-additional-repo/nouri",
+      "description": "Nouri service",
+      "tech": ["Node.js"],
+      "tier": "medium",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "apollo": {
+      "name": "apollo",
+      "path": "~/Documents/syfe-additional-repo/apollo",
+      "description": "Apollo service",
+      "tech": ["Node.js"],
+      "tier": "medium",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "atlas": {
+      "name": "atlas",
+      "path": "~/Documents/syfe-additional-repo/atlas",
+      "description": "Atlas service",
+      "tech": ["Node.js"],
+      "tier": "medium",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "akari": {
+      "name": "akari",
+      "path": "~/Documents/syfe-additional-repo/akari",
+      "description": "Akari service",
+      "tech": ["Node.js"],
+      "tier": "medium",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "westworld": {
+      "name": "westworld",
+      "path": "~/Documents/syfe-additional-repo/westworld",
+      "description": "Westworld service",
+      "tech": ["Node.js"],
+      "tier": "medium",
+      "dependsOn": [],
+      "dependedBy": []
+    },
+    "syfe-backend-interviews": {
+      "name": "syfe-backend-interviews",
+      "path": "~/Documents/syfe-additional-repo/syfe-backend-interviews",
+      "description": "Backend interview assignments",
+      "tech": ["Node.js"],
+      "tier": "tooling",
+      "dependsOn": [],
+      "dependedBy": []
+    }
+  }
+}
