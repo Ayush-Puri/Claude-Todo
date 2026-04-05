@@ -1,0 +1,6 @@
+logs/
+tasks/
+*.jsonl
+.DS_Store
+app/AppIcon.iconset/
+app/ClaudeTaskRunner

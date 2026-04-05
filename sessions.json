@@ -1,0 +1,49 @@
+{
+  "sessions": [
+    {
+      "id": 1,
+      "name": "Morning",
+      "startHour": 8, "startMinute": 30,
+      "endHour": 13, "endMinute": 30,
+      "model": "haiku",
+      "maxBudgetUsd": 10,
+      "timeoutSeconds": 16200
+    },
+    {
+      "id": 2,
+      "name": "Afternoon",
+      "startHour": 13, "startMinute": 30,
+      "endHour": 18, "endMinute": 30,
+      "model": "haiku",
+      "maxBudgetUsd": 10,
+      "timeoutSeconds": 16200
+    },
+    {
+      "id": 3,
+      "name": "Evening",
+      "startHour": 18, "startMinute": 30,
+      "endHour": 23, "endMinute": 30,
+      "model": "haiku",
+      "maxBudgetUsd": 10,
+      "timeoutSeconds": 16200
+    },
+    {
+      "id": 4,
+      "name": "Night",
+      "startHour": 23, "startMinute": 30,
+      "endHour": 4, "endMinute": 30,
+      "model": "haiku",
+      "maxBudgetUsd": 10,
+      "timeoutSeconds": 16200
+    },
+    {
+      "id": 5,
+      "name": "Early Morning",
+      "startHour": 4, "startMinute": 30,
+      "endHour": 8, "endMinute": 30,
+      "model": "haiku",
+      "maxBudgetUsd": 10,
+      "timeoutSeconds": 14400
+    }
+  ]
+}
