@@ -183,11 +183,21 @@
 const STORAGE_KEY='claude-auto-tasks-v2';
 const DEFAULT_SECTIONS=[
   {id:'todo',name:'To-Do',icon:'&#9744;',type:'builtin',sortOrder:0},
-  {id:'done',name:'Done',icon:'&#10003;',type:'builtin',sortOrder:100},
   {id:'next-week',name:'Next Week',icon:'&#128197;',type:'builtin',sortOrder:50},
+  {id:'failed',name:'Failed',icon:'&#10007;',type:'builtin',sortOrder:80},
+  {id:'needs-review',name:'Needs Review',icon:'&#9888;',type:'builtin',sortOrder:90},
+  {id:'done',name:'Done',icon:'&#10003;',type:'builtin',sortOrder:100},
 ];
 
 let state=loadState();
+// Ensure new builtin sections exist (for upgrades)
+DEFAULT_SECTIONS.forEach(ds=>{if(!state.sections.find(s=>s.id===ds.id))state.sections.push(ds);});
+// Route any tasks with failed/needs-review status to their sections
+state.tasks.forEach(t=>{
+  if(t.status==='failed'&&t.sectionId!=='failed')t.sectionId='failed';
+  if(t.status==='needs-review'&&t.sectionId!=='needs-review')t.sectionId='needs-review';
+  if(t.status==='done'&&t.sectionId!=='done')t.sectionId='done';
+});
 let activeSection=state.sections[0]?.id||'todo';
 let expandedTasks=new Set();
 let editingTokenId=null;
@@ -298,6 +308,11 @@ function render(){
           <div class="section-label">Projects <button class="add-section-btn" onclick="promptNewSection()" title="New project">+</button></div>
           ${state.sections.filter(s=>s.type==='project').map(s=>renderSectionItem(s)).join('')}
           ${state.sections.filter(s=>s.type==='project').length===0?'<div style="padding:4px 8px;font-size:11px;color:var(--text-500);">No projects yet</div>':''}
+        </div>
+        <div class="section-group">
+          <div class="section-label">Issues</div>
+          ${renderSectionItem(state.sections.find(s=>s.id==='failed'))}
+          ${renderSectionItem(state.sections.find(s=>s.id==='needs-review'))}
         </div>
         <div class="section-group" style="margin-top:auto;padding-top:8px;">
           <div class="section-label">Archive</div>
@@ -419,10 +434,13 @@ function selectAll(){
   render();
 }
 function clearSelection(){ selectedTasks.clear(); render(); }
+function sectionToStatus(secId){
+  if(secId==='done')return'done';if(secId==='failed')return'failed';if(secId==='needs-review')return'needs-review';return'pending';
+}
 function bulkMoveTo(secId){
   selectedTasks.forEach(tid=>{
     const t=state.tasks.find(x=>x.id===tid);
-    if(t){ t.sectionId=secId; if(secId==='done')t.status='done'; else if(t.status==='done')t.status='pending'; }
+    if(t){ t.sectionId=secId; t.status=sectionToStatus(secId); }
   });
   selectedTasks.clear(); saveState(); render();
   showToast(`Moved to ${state.sections.find(s=>s.id===secId)?.name||secId}`,'success');
@@ -537,8 +555,7 @@ function dropOnSection(e,secId){
   if(!t)return;
   const oldSec=t.sectionId;
   t.sectionId=secId;
-  if(secId==='done')t.status='done';
-  else if(t.status==='done')t.status='pending';
+  t.status=sectionToStatus(secId);
   saveState();render();
   showToast(`Moved to ${state.sections.find(s=>s.id===secId)?.name||secId}`,'success');
 }
@@ -564,9 +581,10 @@ window._onGroupsLoaded = function(jsonStr) {
           if (ft.status && ft.status !== existing.status) { existing.status = ft.status; changed = true; }
           if (ft.retryCount !== undefined && ft.retryCount !== existing.retryCount) { existing.retryCount = ft.retryCount; changed = true; }
           if (ft.logs && JSON.stringify(ft.logs) !== JSON.stringify(existing.logs)) { existing.logs = ft.logs; changed = true; }
-          // If task marked done by executor, move to done section
+          // Route tasks to correct sections based on status
           if (ft.status === 'done' && existing.sectionId !== 'done') { existing.sectionId = 'done'; changed = true; }
-          if (ft.status === 'needs-review' && existing.sectionId === 'done') { existing.sectionId = 'todo'; changed = true; }
+          if (ft.status === 'failed' && existing.sectionId !== 'failed') { existing.sectionId = 'failed'; changed = true; }
+          if (ft.status === 'needs-review' && existing.sectionId !== 'needs-review') { existing.sectionId = 'needs-review'; changed = true; }
         } else {
           // New task from file — add it
           const secId = ft.status === 'done' ? 'done' : (g.id || 'todo');
