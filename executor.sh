@@ -164,6 +164,9 @@ for t in data['tasks']:
   TASK_EXPECTED=$(echo "$TASK_JSON" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('expectedResult',''))")
   RETRY_COUNT=$(echo "$TASK_JSON" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('retryCount',0))")
 
+  TASK_SCHED_DATE=$(echo "$TASK_JSON" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('scheduledDate',''))")
+  TASK_SCHED_TIME=$(echo "$TASK_JSON" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('scheduledTime',''))")
+
   SAFE_TITLE=$(echo "$TASK_TITLE" | tr ' /' '-_' | tr -cd '[:alnum:]-_')
   RAW_LOG="$RAW_LOG_DIR/${TIMESTAMP}_S${SESSION_ID}_${TASK_NUM}_${SAFE_TITLE}.jsonl"
   DEBUG_LOG="$RAW_LOG_DIR/${TIMESTAMP}_S${SESSION_ID}_${TASK_NUM}_${SAFE_TITLE}_debug.txt"
@@ -171,6 +174,30 @@ for t in data['tasks']:
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   log "${BOLD}Task $TASK_NUM/$TASK_COUNT: $TASK_TITLE${NC}"
   echo -e "${DIM}ID: $TASK_ID | Model: $MODEL${NC}"
+
+  # === Wait for scheduled time ===
+  if [ -n "$TASK_SCHED_TIME" ] && [ "$TASK_SCHED_TIME" != "null" ]; then
+    SCHED_TODAY="${TASK_SCHED_DATE:-$(date +%Y-%m-%d)}"
+    SCHED_EPOCH=$(date -j -f "%Y-%m-%d %H:%M" "$SCHED_TODAY $TASK_SCHED_TIME" "+%s" 2>/dev/null || echo 0)
+    NOW_EPOCH=$(date "+%s")
+    WAIT_SECS=$((SCHED_EPOCH - NOW_EPOCH))
+
+    if [ "$WAIT_SECS" -gt 0 ]; then
+      WAIT_MINS=$((WAIT_SECS / 60))
+      WAIT_REM=$((WAIT_SECS % 60))
+      log "${YELLOW}⏳ Scheduled for $TASK_SCHED_TIME — waiting ${WAIT_MINS}m ${WAIT_REM}s...${NC}"
+      while [ "$(date '+%s')" -lt "$SCHED_EPOCH" ]; do
+        REMAINING=$(( SCHED_EPOCH - $(date '+%s') ))
+        if [ "$REMAINING" -le 0 ]; then break; fi
+        printf "\r  ${DIM}Starting in %dm %ds...${NC}  " $((REMAINING/60)) $((REMAINING%60))
+        sleep 5
+      done
+      printf "\r                                    \r"
+      log "${GREEN}⏰ Time reached — starting now${NC}"
+    else
+      log "${DIM}Scheduled time already passed — running immediately${NC}"
+    fi
+  fi
   echo ""
 
   # Update status
