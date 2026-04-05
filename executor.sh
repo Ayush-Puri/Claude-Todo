@@ -96,10 +96,35 @@ GROUP_TITLE=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['t
 GROUP_ID=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['id'])" "$ACTIVE_FILE")
 GROUP_DATE=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('date','undated'))" "$ACTIVE_FILE")
 
+RESOLVE_SCRIPT="$HOME/claude-auto/resolve-context.py"
+REGISTRY_FILE="$HOME/claude-auto/repo-registry.json"
+
+# Resolve repo context if task file has a "repos" field
+REPO_IDS=$(python3 -c "import json,sys; print(' '.join(json.load(open(sys.argv[1])).get('repos',[])))" "$ACTIVE_FILE" 2>/dev/null || echo "")
+REPO_CONTEXT=""
+ADD_DIR_FLAGS=""
+if [ -n "$REPO_IDS" ] && [ -f "$REGISTRY_FILE" ]; then
+  REPO_CONTEXT=$(python3 "$RESOLVE_SCRIPT" "$ACTIVE_FILE" --context 2>/dev/null || echo "")
+  ADD_DIR_FLAGS=$(python3 -c "
+import json,os,sys
+reg=json.load(open(sys.argv[1]))['repos']
+ids=sys.argv[2].split()
+dirs=[]
+for rid in ids:
+    r=reg.get(rid,{})
+    p=r.get('path','')
+    if p: dirs.append(os.path.expanduser(p))
+print(' '.join(['--add-dir '+d for d in dirs]))
+" "$REGISTRY_FILE" "$REPO_IDS" 2>/dev/null || echo "")
+fi
+
 log "${BOLD}Group:${NC}   $GROUP_TITLE"
 log "${BOLD}Model:${NC}   $MODEL"
 log "${BOLD}Session:${NC} #$SESSION_ID ($SESSION_NAME)"
 log "${BOLD}File:${NC}    $ACTIVE_FILE"
+if [ -n "$REPO_IDS" ]; then
+  log "${BOLD}Repos:${NC}   $REPO_IDS"
+fi
 echo ""
 
 # === Helper: Update task field in JSON ===
@@ -262,14 +287,24 @@ for t in data['tasks']:
   update_task "$TASK_ID" "logs.startedAt" "\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\""
   update_task "$TASK_ID" "logs.sessionId" "\"$CLAUDE_SESSION_ID\""
 
+  # === Inject repo context into prompt ===
+  FULL_PROMPT="$TASK_PROMPT"
+  if [ -n "$REPO_CONTEXT" ] && [ "$TASK_NUM" -eq 1 ]; then
+    # Only inject context into the first task (session retains it for subsequent tasks)
+    FULL_PROMPT="${REPO_CONTEXT}
+---
+
+${TASK_PROMPT}"
+  fi
+
   # === Execute task in the SAME Claude session ===
   log "${YELLOW}▸ Executing...${NC}"
   echo ""
 
   TASK_EXIT=0
   if [ "$TASK_NUM" -eq 1 ]; then
-    # First task: start new session with --session-id
-    "$CLAUDE_BIN" \
+    # First task: start new session with --session-id (+ --add-dir for repo access)
+    eval "$CLAUDE_BIN" \
       --print \
       --dangerously-skip-permissions \
       --model "$MODEL" \
@@ -279,8 +314,9 @@ for t in data['tasks']:
       --verbose \
       --debug-file "$DEBUG_LOG" \
       --max-budget-usd "$MAX_BUDGET" \
-      "$TASK_PROMPT" \
-      > "$RAW_LOG" 2>&1 || TASK_EXIT=$?
+      $ADD_DIR_FLAGS \
+      '"$FULL_PROMPT"' \
+      '>' "$RAW_LOG" '2>&1' || TASK_EXIT=$?
   else
     # Subsequent tasks: resume the same session
     "$CLAUDE_BIN" \
