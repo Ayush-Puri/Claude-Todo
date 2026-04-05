@@ -1,14 +1,44 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_NAME="Claude Task Runner"
-BUNDLE_ID="com.claude.taskrunner"
-APP_DIR="$HOME/Applications/${APP_NAME}.app"
-BUILD_DIR="$HOME/claude-auto/app"
+APP_NAME="Claude Todo"
+BUNDLE_ID="com.claude.todo"
+APP_DIR="/Applications/${APP_NAME}.app"
+SOURCE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_DIR="${SOURCE_DIR}/app"
+CLAUDE_AUTO_DIR="$HOME/claude-auto"
 
-echo "Building ${APP_NAME}..."
+echo "╔══════════════════════════════════════════╗"
+echo "║  Claude Todo — Build & Install           ║"
+echo "╚══════════════════════════════════════════╝"
+echo ""
 
-# Compile the Swift source
+# === Step 1: Set up ~/claude-auto directory structure ===
+echo "Setting up ~/claude-auto/..."
+mkdir -p "$CLAUDE_AUTO_DIR"/{tasks,logs/raw,app}
+
+# Copy source files to ~/claude-auto/ (the app reads dashboard.html from here)
+cp "${SOURCE_DIR}/dashboard.html" "$CLAUDE_AUTO_DIR/"
+cp "${SOURCE_DIR}/executor.sh" "$CLAUDE_AUTO_DIR/"
+cp "${SOURCE_DIR}/runner.sh" "$CLAUDE_AUTO_DIR/"
+cp "${SOURCE_DIR}/parse-log.py" "$CLAUDE_AUTO_DIR/"
+cp "${SOURCE_DIR}/sync-tasks.sh" "$CLAUDE_AUTO_DIR/"
+cp "${SOURCE_DIR}/instructions.md" "$CLAUDE_AUTO_DIR/"
+cp "${SOURCE_DIR}/sessions.json" "$CLAUDE_AUTO_DIR/"
+cp "${BUILD_DIR}/ClaudeTaskRunner.swift" "$CLAUDE_AUTO_DIR/app/"
+cp "${BUILD_DIR}/build.sh" "$CLAUDE_AUTO_DIR/app/"
+cp "${BUILD_DIR}/gen_icon.py" "$CLAUDE_AUTO_DIR/app/"
+
+chmod +x "$CLAUDE_AUTO_DIR/executor.sh" "$CLAUDE_AUTO_DIR/runner.sh" "$CLAUDE_AUTO_DIR/parse-log.py" "$CLAUDE_AUTO_DIR/sync-tasks.sh"
+
+echo "  ✓ Files copied to ~/claude-auto/"
+echo "  ✓ Created ~/claude-auto/tasks/ (task JSON sync directory)"
+echo "  ✓ Created ~/claude-auto/logs/raw/"
+
+# === Step 2: Compile the Swift app ===
+echo ""
+echo "Compiling ${APP_NAME}..."
+
 swiftc \
   -o "${BUILD_DIR}/ClaudeTaskRunner" \
   -framework Cocoa \
@@ -17,17 +47,15 @@ swiftc \
   -O \
   "${BUILD_DIR}/ClaudeTaskRunner.swift"
 
-echo "Compiled binary."
+echo "  ✓ Binary compiled"
 
-# Create .app bundle structure
+# === Step 3: Create .app bundle ===
 rm -rf "${APP_DIR}"
 mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 
-# Copy binary
 cp "${BUILD_DIR}/ClaudeTaskRunner" "${APP_DIR}/Contents/MacOS/ClaudeTaskRunner"
 
-# Create Info.plist
 cat > "${APP_DIR}/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -35,15 +63,15 @@ cat > "${APP_DIR}/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>Claude Task Runner</string>
+  <string>Claude Todo</string>
   <key>CFBundleDisplayName</key>
-  <string>Claude Task Runner</string>
+  <string>Claude Todo</string>
   <key>CFBundleIdentifier</key>
-  <string>com.claude.taskrunner</string>
+  <string>com.claude.todo</string>
   <key>CFBundleVersion</key>
-  <string>1.0</string>
+  <string>2.0</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
+  <string>2.0</string>
   <key>CFBundleExecutable</key>
   <string>ClaudeTaskRunner</string>
   <key>CFBundleIconFile</key>
@@ -65,105 +93,110 @@ cat > "${APP_DIR}/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-# Generate app icon (purple/gradient octagon)
-python3 - <<'PYICON'
-import struct, zlib, os
+echo "  ✓ App bundle created"
 
-def create_png(width, height, pixels):
-    """Create a minimal PNG from RGBA pixel data."""
-    def chunk(chunk_type, data):
-        c = chunk_type + data
-        crc = struct.pack('>I', zlib.crc32(c) & 0xffffffff)
-        return struct.pack('>I', len(data)) + c + crc
+# === Step 4: Generate app icon ===
+echo "Generating icon..."
+python3 "${BUILD_DIR}/gen_icon.py" 2>&1 | grep -E "^(All|  Gen)" | head -3
 
-    header = b'\x89PNG\r\n\x1a\n'
-    ihdr = chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0))
+ICONSET_DIR="${BUILD_DIR}/AppIcon.iconset"
+if [ -d "$ICONSET_DIR" ]; then
+  iconutil -c icns "$ICONSET_DIR" -o "${APP_DIR}/Contents/Resources/AppIcon.icns" 2>/dev/null && \
+    echo "  ✓ AppIcon.icns created" || echo "  ⚠ iconutil failed, using default icon"
+  rm -rf "$ICONSET_DIR"
+fi
 
-    raw = b''
-    for y in range(height):
-        raw += b'\x00'  # filter none
-        for x in range(width):
-            idx = (y * width + x) * 4
-            raw += bytes(pixels[idx:idx+4])
-
-    idat = chunk(b'IDAT', zlib.compress(raw, 9))
-    iend = chunk(b'IEND', b'')
-    return header + ihdr + idat + iend
-
-def make_icon(size):
-    pixels = [0] * (size * size * 4)
-    cx, cy = size / 2, size / 2
-    r = size * 0.42
-
-    for y in range(size):
-        for x in range(size):
-            dx, dy = x - cx, y - cy
-            dist = (dx*dx + dy*dy) ** 0.5
-            idx = (y * size + x) * 4
-
-            if dist < r:
-                # Gradient: purple to pink
-                t = y / size
-                red = int(124 + (244 - 124) * t)
-                green = int(106 + (114 - 106) * t)
-                blue = int(255 + (182 - 255) * t)
-
-                # Inner circle detail - lightning bolt zone
-                inner = dist / r
-                if inner < 0.55:
-                    # Brighter center
-                    bright = 1 + (0.55 - inner) * 0.6
-                    red = min(255, int(red * bright))
-                    green = min(255, int(green * bright))
-                    blue = min(255, int(blue * bright))
-
-                # Anti-alias edge
-                edge = max(0, min(1, (r - dist) * 2))
-                alpha = int(255 * edge)
-
-                pixels[idx] = red
-                pixels[idx+1] = green
-                pixels[idx+2] = blue
-                pixels[idx+3] = alpha
-            else:
-                pixels[idx:idx+4] = [0, 0, 0, 0]
-
-    return create_png(size, size, pixels)
-
-# Create iconset
-iconset_dir = os.path.expanduser('~/claude-auto/app/AppIcon.iconset')
-os.makedirs(iconset_dir, exist_ok=True)
-
-icon_sizes = [
-    (16, 1), (16, 2), (32, 1), (32, 2),
-    (128, 1), (128, 2), (256, 1), (256, 2),
-    (512, 1), (512, 2)
-]
-
-for base, scale in icon_sizes:
-    actual = base * scale
-    png = make_icon(actual)
-    suffix = f'_{base}x{base}{"@2x" if scale == 2 else ""}.png'
-    path = os.path.join(iconset_dir, f'icon{suffix}')
-    with open(path, 'wb') as f:
-        f.write(png)
-    print(f'  Generated {path} ({actual}x{actual})')
-
-print('Icon PNGs generated.')
-PYICON
-
-# Convert iconset to icns
-iconutil -c icns "${BUILD_DIR}/AppIcon.iconset" -o "${APP_DIR}/Contents/Resources/AppIcon.icns" 2>/dev/null && \
-  echo "Created AppIcon.icns" || \
-  echo "Warning: iconutil failed, app will use default icon"
-
-# Clean up
-rm -rf "${BUILD_DIR}/AppIcon.iconset"
+# Clean up build artifacts
 rm -f "${BUILD_DIR}/ClaudeTaskRunner"
 
+# === Step 5: Install launchd schedules ===
 echo ""
-echo "=== Built successfully! ==="
-echo "App location: ${APP_DIR}"
+echo "Setting up scheduled sessions..."
+
+PLIST_DIR="$HOME/Library/LaunchAgents"
+mkdir -p "$PLIST_DIR"
+
+cat > "${PLIST_DIR}/com.claude.autorun.plist" <<LAUNCHD
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claude.autorun</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${CLAUDE_AUTO_DIR}/executor.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>13</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>18</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>30</integer></dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>${CLAUDE_AUTO_DIR}/logs/launchd_stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>${CLAUDE_AUTO_DIR}/logs/launchd_stderr.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>\${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>\${HOME}</string>
+  </dict>
+</dict>
+</plist>
+LAUNCHD
+
+# Sleep prevention
+cat > "${PLIST_DIR}/com.claude.caffeinate.plist" <<'CAFFPLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claude.caffeinate</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/caffeinate</string>
+    <string>-d</string>
+    <string>-i</string>
+    <string>-s</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+</dict>
+</plist>
+CAFFPLIST
+
+launchctl unload "${PLIST_DIR}/com.claude.autorun.plist" 2>/dev/null || true
+launchctl load "${PLIST_DIR}/com.claude.autorun.plist" 2>/dev/null
+launchctl unload "${PLIST_DIR}/com.claude.caffeinate.plist" 2>/dev/null || true
+launchctl load "${PLIST_DIR}/com.claude.caffeinate.plist" 2>/dev/null
+
+echo "  ✓ Scheduled sessions: 8:30, 13:30, 18:30, 23:30, 4:30"
+echo "  ✓ Sleep prevention enabled"
+
+# === Step 6: Register with LaunchServices ===
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "${APP_DIR}" 2>/dev/null || true
+
+# === Done ===
 echo ""
-echo "Opening app..."
+echo "╔══════════════════════════════════════════╗"
+echo "║  ✓ Claude Todo installed successfully!   ║"
+echo "╠══════════════════════════════════════════╣"
+echo "║  App:    /Applications/Claude Todo.app   ║"
+echo "║  Data:   ~/claude-auto/                  ║"
+echo "║  Tasks:  ~/claude-auto/tasks/            ║"
+echo "║  Logs:   ~/claude-auto/logs/             ║"
+echo "╚══════════════════════════════════════════╝"
+echo ""
+echo "Opening Claude Todo..."
 open "${APP_DIR}"

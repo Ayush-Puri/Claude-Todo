@@ -100,11 +100,74 @@ class NativeBridge: NSObject, WKScriptMessageHandler {
     }
 }
 
+// MARK: - File Watcher: monitors ~/claude-auto/tasks/ for changes
+class TaskFileWatcher {
+    private var dirSource: DispatchSourceFileSystemObject?
+    private var timer: DispatchSourceTimer?
+    private let tasksDir: String
+    private weak var bridge: NativeBridge?
+    private weak var webView: WKWebView?
+    private var lastHashes: [String: Int] = [:]
+
+    init(tasksDir: String) {
+        self.tasksDir = tasksDir
+    }
+
+    func start(bridge: NativeBridge, webView: WKWebView) {
+        self.bridge = bridge
+        self.webView = webView
+
+        // Poll every 3 seconds (more reliable than DispatchSource for directory contents)
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + 3, repeating: 3)
+        timer.setEventHandler { [weak self] in
+            self?.checkForChanges()
+        }
+        timer.resume()
+        self.timer = timer
+
+        // Initial load
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.pushToJS()
+        }
+    }
+
+    private func checkForChanges() {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: tasksDir) else { return }
+
+        var currentHashes: [String: Int] = [:]
+        for file in files where file.hasSuffix(".json") {
+            let path = (tasksDir as NSString).appendingPathComponent(file)
+            if let attrs = try? fm.attributesOfItem(atPath: path),
+               let mod = attrs[.modificationDate] as? Date {
+                currentHashes[file] = Int(mod.timeIntervalSince1970 * 1000)
+            }
+        }
+
+        if currentHashes != lastHashes {
+            lastHashes = currentHashes
+            pushToJS()
+        }
+    }
+
+    private func pushToJS() {
+        guard let bridge = bridge, let webView = webView else { return }
+        bridge.loadAndSendGroups(to: webView)
+    }
+
+    func stop() {
+        timer?.cancel()
+        dirSource?.cancel()
+    }
+}
+
 // MARK: - App Delegate
 class AppDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow!
     var webView: WKWebView!
     var bridge: NativeBridge!
+    var watcher: TaskFileWatcher!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let tasksDir = NSString("~/claude-auto/tasks").expandingTildeInPath
@@ -156,6 +219,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        // Start file watcher — polls tasks/ dir every 3s, pushes changes to JS
+        watcher = TaskFileWatcher(tasksDir: tasksDir)
+        watcher.start(bridge: bridge, webView: webView)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        watcher?.stop()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

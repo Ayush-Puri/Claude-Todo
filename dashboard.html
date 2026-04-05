@@ -549,6 +549,50 @@ document.addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key==='n'){e.preventDefault();addTask();}
 });
 
+// === File watcher callback: Swift pushes updated task files here every 3s ===
+window._onGroupsLoaded = function(jsonStr) {
+  try {
+    const groups = JSON.parse(jsonStr);
+    if (!Array.isArray(groups)) return;
+    let changed = false;
+    groups.forEach(g => {
+      if (!g.id || !g.tasks) return;
+      g.tasks.forEach(ft => {
+        const existing = state.tasks.find(t => t.id === ft.id);
+        if (existing) {
+          // Update status, logs, retryCount from file (executor writes these)
+          if (ft.status && ft.status !== existing.status) { existing.status = ft.status; changed = true; }
+          if (ft.retryCount !== undefined && ft.retryCount !== existing.retryCount) { existing.retryCount = ft.retryCount; changed = true; }
+          if (ft.logs && JSON.stringify(ft.logs) !== JSON.stringify(existing.logs)) { existing.logs = ft.logs; changed = true; }
+          // If task marked done by executor, move to done section
+          if (ft.status === 'done' && existing.sectionId !== 'done') { existing.sectionId = 'done'; changed = true; }
+          if (ft.status === 'needs-review' && existing.sectionId === 'done') { existing.sectionId = 'todo'; changed = true; }
+        } else {
+          // New task from file — add it
+          const secId = ft.status === 'done' ? 'done' : (g.id || 'todo');
+          // Make sure the section exists
+          if (!state.sections.find(s => s.id === secId) && secId !== 'todo' && secId !== 'done' && secId !== 'next-week') {
+            state.sections.push({ id: secId, name: g.title || secId, icon: '&#128194;', type: 'project', sortOrder: 10 });
+          }
+          state.tasks.push({
+            id: ft.id, title: ft.title || '', prompt: ft.prompt || '',
+            status: ft.status || 'pending', sectionId: ft.status === 'done' ? 'done' : (state.sections.find(s => s.id === secId) ? secId : 'todo'),
+            verification: ft.verification || '', expectedResult: ft.expectedResult || '',
+            scheduledDate: ft.scheduledDate || '', scheduledTime: ft.scheduledTime || '',
+            retryCount: ft.retryCount || 0, logs: ft.logs || {},
+            estimatedTokens: estimateTokens(ft.prompt || ''), manualTokenOverride: null
+          });
+          changed = true;
+        }
+      });
+    });
+    if (changed) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      render();
+    }
+  } catch (e) { console.error('_onGroupsLoaded error:', e); }
+};
+
 render();
 </script>
 </body>
