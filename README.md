@@ -1,5 +1,13 @@
 # Claude Todo
 
+## Built with
+[![Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-blue)](https://claude.ai/code)
+[![Swift](https://img.shields.io/badge/Swift-5.9+-orange)](https://swift.org)
+[![macOS](https://img.shields.io/badge/macOS-14+-green)](https://www.apple.com/macos)
+
+## Status
+Active development — contributions welcome
+
 **Automated task scheduler and executor for Claude Code**
 
 A native macOS app that schedules, manages, and auto-executes AI coding tasks across multiple session windows with full logging to Obsidian and Google Drive.
@@ -24,6 +32,8 @@ Claude Todo consists of several interconnected components:
 - **launchd Scheduling**: System-level scheduling for automated task execution
 
 ## Installation
+
+> **Note:** Requires macOS 14 (Sonoma) or later
 
 1. **Clone the repository**:
    ```bash
