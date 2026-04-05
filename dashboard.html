@@ -156,6 +156,34 @@
   .empty-state h2 { font-size:15px; font-weight:600; color:var(--text-300); }
   .empty-state p { font-size:12px; max-width:300px; line-height:1.5; }
 
+  /* Iteration trace timeline */
+  .iter-timeline { margin-top:10px; border-top:1px solid var(--border); padding-top:8px; }
+  .iter-header { font-size:11px; font-weight:600; color:var(--text-300); margin-bottom:6px; display:flex; align-items:center; gap:6px; }
+  .iter-header .iter-count { font-size:10px; color:var(--text-500); font-family:var(--font-mono); }
+  .iter-item {
+    position:relative; padding:8px 10px 8px 24px; margin-bottom:2px;
+    background:var(--bg-200); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);
+    font-size:11px; line-height:1.5;
+  }
+  .iter-item::before {
+    content:''; position:absolute; left:10px; top:14px;
+    width:6px; height:6px; border-radius:50%;
+  }
+  .iter-item.iter-exec::before { background:var(--blue); }
+  .iter-item.iter-verify-pass::before { background:var(--success); }
+  .iter-item.iter-verify-fail::before { background:var(--danger); }
+  .iter-item.iter-retry::before { background:#fbbf24; }
+  .iter-connector { position:absolute; left:12px; top:20px; bottom:-4px; width:2px; background:var(--border); }
+  .iter-item:last-child .iter-connector { display:none; }
+  .iter-type { font-weight:600; color:var(--text-200); text-transform:uppercase; font-size:10px; letter-spacing:0.5px; }
+  .iter-time { color:var(--text-500); font-family:var(--font-mono); font-size:10px; }
+  .iter-reason { color:var(--accent-clay); margin-top:2px; }
+  .iter-output { color:var(--text-400); margin-top:4px; max-height:80px; overflow:hidden; font-family:var(--font-mono); font-size:10px; line-height:1.4; }
+  .iter-output.expanded { max-height:none; }
+  .iter-tools { display:flex; flex-wrap:wrap; gap:3px; margin-top:4px; }
+  .iter-tool-tag { font-size:9px; padding:1px 5px; border-radius:3px; background:var(--border-subtle); color:var(--text-400); font-family:var(--font-mono); }
+  .iter-toggle { background:none; border:none; color:var(--accent-clay); cursor:pointer; font-size:10px; padding:2px 0; }
+
   #toasts { position:fixed; bottom:16px; right:16px; z-index:1000; display:flex; flex-direction:column; gap:5px; }
   .toast { background:var(--surface-raised); border:1px solid var(--border); border-radius:6px; padding:8px 14px; font-size:12px; color:var(--text-200); box-shadow:0 6px 20px rgba(0,0,0,0.3); animation:toastIn 0.15s ease,toastOut 0.15s ease 2.85s forwards; max-width:340px; }
   .toast.success { border-left:3px solid var(--success); }
@@ -407,8 +435,65 @@ function renderTask(t,idx){
         <label>Time</label><input type="time" value="${t.scheduledTime||''}" onchange="updateTask('${t.id}','scheduledTime',this.value);onFieldBlur('${activeSection}')">
       </div>
       <div class="task-meta"><span>${(t.prompt||'').length} chars</span><span>${formatTokens(estimateTokens(t.prompt||''))} est</span></div>
+      ${(t.iterations&&t.iterations.length>0)?renderIterations(t.iterations):''}
     </div>
   </div>`;
+}
+
+// === Iteration trace renderer ===
+function renderIterations(iterations){
+  if(!iterations||!iterations.length)return'';
+  const summary=iterations.filter(i=>i.type==='verification');
+  const lastVerify=summary.length?summary[summary.length-1]:null;
+  const summaryText=lastVerify?(lastVerify.passed?'Last verification passed':'Last failure: '+esc(lastVerify.reason||'unknown')):'No verification yet';
+
+  return`<div class="iter-timeline">
+    <div class="iter-header">Iteration History <span class="iter-count">${iterations.length} steps</span> — <span style="font-weight:400;color:var(--text-400);">${summaryText}</span></div>
+    ${iterations.map((it,idx)=>{
+      const isLast=idx===iterations.length-1;
+      let cls='iter-exec';
+      if(it.type==='verification') cls=it.passed?'iter-verify-pass':'iter-verify-fail';
+      if(it.type==='retry') cls='iter-retry';
+
+      let typeLabel=it.type==='execution'?'Execution':it.type==='verification'?'Verification':it.type==='retry'?'Retry':'Step';
+      let time=it.timestamp?it.timestamp.replace('T',' ').replace('Z',''):'';
+
+      let body='';
+      if(it.type==='verification'){
+        body=`<div class="iter-reason">${it.passed?'✓ Passed':'✗ Failed'}: ${esc(it.reason||'')}</div>`;
+      } else {
+        const output=it.output||it.summary||'';
+        const truncated=output.length>200;
+        const displayOut=truncated?output.slice(0,200)+'...':output;
+        body=`${it.errors&&it.errors.length?`<div style="color:var(--danger);margin-top:2px;">Error: ${esc(it.errors[0])}</div>`:''}
+          ${output?`<div class="iter-output" id="iter-out-${idx}">${esc(displayOut)}</div>`:''}
+          ${truncated?`<button class="iter-toggle" onclick="toggleIterOutput(this,${idx},'${esc(output.replace(/'/g,"\\'").replace(/\n/g,'\\n'))}')">Show more</button>`:''}
+          ${it.tools&&it.tools.length?`<div class="iter-tools">${it.tools.slice(0,10).map(tl=>`<span class="iter-tool-tag">${esc(tl.tool)}${tl.file?' '+esc(tl.file.split('/').pop()):''}${tl.cmd?' '+esc(tl.cmd.slice(0,30))+'…':''}</span>`).join('')}${it.tools.length>10?`<span class="iter-tool-tag">+${it.tools.length-10} more</span>`:''}</div>`:''}`;
+      }
+
+      return`<div class="iter-item ${cls}">
+        ${!isLast?'<div class="iter-connector"></div>':''}
+        <span class="iter-type">#${it.iteration||idx+1} ${typeLabel}</span> <span class="iter-time">${time}</span>
+        ${it.model?`<span class="iter-tool-tag" style="margin-left:4px;">${it.model}</span>`:''}
+        ${it.exitCode!==undefined?`<span class="iter-tool-tag">exit:${it.exitCode}</span>`:''}
+        ${body}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function toggleIterOutput(btn,idx,fullText){
+  const el=document.getElementById('iter-out-'+idx);
+  if(!el)return;
+  if(el.classList.contains('expanded')){
+    el.classList.remove('expanded');
+    el.textContent=fullText.slice(0,200)+'...';
+    btn.textContent='Show more';
+  } else {
+    el.classList.add('expanded');
+    el.textContent=fullText;
+    btn.textContent='Show less';
+  }
 }
 
 // === ACTIONS ===
@@ -581,6 +666,7 @@ window._onGroupsLoaded = function(jsonStr) {
           if (ft.status && ft.status !== existing.status) { existing.status = ft.status; changed = true; }
           if (ft.retryCount !== undefined && ft.retryCount !== existing.retryCount) { existing.retryCount = ft.retryCount; changed = true; }
           if (ft.logs && JSON.stringify(ft.logs) !== JSON.stringify(existing.logs)) { existing.logs = ft.logs; changed = true; }
+          if (ft.iterations && ft.iterations.length > (existing.iterations||[]).length) { existing.iterations = ft.iterations; changed = true; }
           // Route tasks to correct sections based on status
           if (ft.status === 'done' && existing.sectionId !== 'done') { existing.sectionId = 'done'; changed = true; }
           if (ft.status === 'failed' && existing.sectionId !== 'failed') { existing.sectionId = 'failed'; changed = true; }

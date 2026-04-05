@@ -119,6 +119,63 @@ with open(sys.argv[1], 'w') as f: json.dump(data, f, indent=2)
 " "$ACTIVE_FILE" "$1" "$2" "$3"
 }
 
+# === Helper: Append an iteration entry to a task's iterations array ===
+# Usage: append_iteration TASK_ID '{"json":"object"}'
+append_iteration() {
+  python3 -c "
+import json, sys
+with open(sys.argv[1], 'r') as f: data = json.load(f)
+for t in data['tasks']:
+    if t['id'] == sys.argv[2]:
+        if 'iterations' not in t: t['iterations'] = []
+        t['iterations'].append(json.loads(sys.argv[3]))
+        break
+with open(sys.argv[1], 'w') as f: json.dump(data, f, indent=2)
+" "$ACTIVE_FILE" "$1" "$2"
+}
+
+# === Helper: Extract output summary + tool trace from a raw stream-json log ===
+extract_trace() {
+  python3 -c "
+import json, sys
+log_path = sys.argv[1]
+lines = []
+try:
+    with open(log_path) as f: lines = f.readlines()
+except: pass
+
+texts, tools, errors = [], [], []
+for line in lines:
+    try:
+        ev = json.loads(line.strip())
+        if ev.get('type') == 'assistant':
+            for b in ev.get('message',{}).get('content',[]):
+                if b.get('type') == 'text':
+                    texts.append(b['text'])
+                elif b.get('type') == 'tool_use':
+                    name = b.get('name','')
+                    inp = b.get('input',{})
+                    if name == 'Bash':
+                        tools.append({'tool':'Bash','cmd':inp.get('command','')[:200]})
+                    elif name in ('Read','Write','Edit'):
+                        tools.append({'tool':name,'file':inp.get('file_path','')})
+                    elif name == 'Grep':
+                        tools.append({'tool':'Grep','pattern':inp.get('pattern',''),'path':inp.get('path','')})
+                    else:
+                        tools.append({'tool':name})
+        if ev.get('type') == 'result':
+            if ev.get('subtype') == 'error':
+                errors.append(ev.get('error','unknown error'))
+    except: pass
+
+output = ' '.join(texts)
+if len(output) > 1500: output = output[:1500] + '...'
+
+result = {'output': output, 'tools': tools[:30], 'errors': errors}
+print(json.dumps(result))
+" "$1"
+}
+
 # === Collect pending tasks ===
 TASK_IDS=$(python3 -c "
 import json, sys
@@ -240,29 +297,36 @@ for t in data['tasks']:
       > "$RAW_LOG" 2>&1 || TASK_EXIT=$?
   fi
 
-  # Show a brief summary of what Claude did (extract text from stream-json)
+  # === Extract trace from execution ===
   echo ""
-  SUMMARY=$(python3 -c "
-import json, sys
-lines = open(sys.argv[1]).readlines()
-texts = []
-for line in lines:
-    try:
-        ev = json.loads(line.strip())
-        if ev.get('type') == 'assistant':
-            for b in ev.get('message',{}).get('content',[]):
-                if b.get('type') == 'text':
-                    texts.append(b['text'])
-    except: pass
-full = ' '.join(texts)
-if len(full) > 500: full = full[:500] + '...'
-print(full if full else '(no text output)')
-" "$RAW_LOG" 2>/dev/null || echo "(could not parse output)")
+  TRACE_JSON=$(extract_trace "$RAW_LOG" 2>/dev/null || echo '{"output":"","tools":[],"errors":[]}')
+  SUMMARY=$(echo "$TRACE_JSON" | python3 -c "import json,sys;d=json.loads(sys.stdin.read());o=d.get('output','');print(o[:500]+'...' if len(o)>500 else o if o else '(no output)')" 2>/dev/null || echo "(parse error)")
 
   echo -e "${DIM}Output: $SUMMARY${NC}"
   echo ""
-
   log "  Exit code: $TASK_EXIT"
+
+  # Record iteration #1
+  ITER_NUM=1
+  ITER_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  ITER_ENTRY=$(python3 -c "
+import json,sys
+trace=json.loads(sys.argv[1])
+entry={
+  'iteration': int(sys.argv[2]),
+  'timestamp': sys.argv[3],
+  'type': 'execution',
+  'exitCode': int(sys.argv[4]),
+  'model': sys.argv[5],
+  'logFile': sys.argv[6],
+  'output': trace.get('output','')[:2000],
+  'tools': trace.get('tools',[])[:30],
+  'errors': trace.get('errors',[]),
+  'summary': sys.argv[7][:500]
+}
+print(json.dumps(entry))
+" "$TRACE_JSON" "$ITER_NUM" "$ITER_TIMESTAMP" "$TASK_EXIT" "$MODEL" "$RAW_LOG" "$SUMMARY" 2>/dev/null || echo '{}')
+  append_iteration "$TASK_ID" "$ITER_ENTRY"
 
   # === Verification ===
   if [ -n "$TASK_VERIFY" ] && [ "$TASK_VERIFY" != "null" ] && [ "$TASK_VERIFY" != "" ]; then
@@ -275,11 +339,8 @@ Expected result: $TASK_EXPECTED
 Respond ONLY with JSON: {\"passed\": true/false, \"reason\": \"...\"}"
 
     VERIFY_RESULT=$("$CLAUDE_BIN" \
-      --print \
-      --dangerously-skip-permissions \
-      --model "$MODEL" \
-      --resume "$CLAUDE_SESSION_ID" \
-      "$VERIFY_PROMPT" 2>&1) || true
+      --print --dangerously-skip-permissions --model "$MODEL" \
+      --resume "$CLAUDE_SESSION_ID" "$VERIFY_PROMPT" 2>&1) || true
 
     PASSED=$(echo "$VERIFY_RESULT" | python3 -c "
 import json,sys,re; text=sys.stdin.read()
@@ -298,6 +359,15 @@ if m:
     except: print('parse error')
 else: print('no json')
 " 2>/dev/null || echo "unknown")
+
+    # Record verification iteration
+    ITER_NUM=$((ITER_NUM + 1))
+    V_ENTRY=$(python3 -c "
+import json,sys
+entry={'iteration':int(sys.argv[1]),'timestamp':sys.argv[2],'type':'verification','passed':sys.argv[3]=='true','reason':sys.argv[4],'model':sys.argv[5]}
+print(json.dumps(entry))
+" "$ITER_NUM" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PASSED" "$REASON" "$MODEL" 2>/dev/null || echo '{}')
+    append_iteration "$TASK_ID" "$V_ENTRY"
 
     if [ "$PASSED" = "true" ]; then
       update_task "$TASK_ID" "status" '"done"'
@@ -322,6 +392,19 @@ else: print('no json')
           "The previous task failed verification. Reason: $REASON. Expected: $TASK_EXPECTED. Please fix: $TASK_PROMPT" \
           > "$RETRY_LOG" 2>&1 || true
 
+        # Record retry iteration
+        ITER_NUM=$((ITER_NUM + 1))
+        RETRY_TRACE=$(extract_trace "$RETRY_LOG" 2>/dev/null || echo '{"output":"","tools":[],"errors":[]}')
+        RETRY_SUMMARY=$(echo "$RETRY_TRACE" | python3 -c "import json,sys;d=json.loads(sys.stdin.read());o=d.get('output','');print(o[:500]+'...' if len(o)>500 else o if o else '(no output)')" 2>/dev/null || echo "")
+        R_ENTRY=$(python3 -c "
+import json,sys
+trace=json.loads(sys.argv[1])
+entry={'iteration':int(sys.argv[2]),'timestamp':sys.argv[3],'type':'retry','model':sys.argv[4],'logFile':sys.argv[5],
+'output':trace.get('output','')[:2000],'tools':trace.get('tools',[])[:30],'errors':trace.get('errors',[]),'reason':sys.argv[6],'summary':sys.argv[7][:500]}
+print(json.dumps(entry))
+" "$RETRY_TRACE" "$ITER_NUM" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$MODEL" "$RETRY_LOG" "$REASON" "$RETRY_SUMMARY" 2>/dev/null || echo '{}')
+        append_iteration "$TASK_ID" "$R_ENTRY"
+
         # Re-verify
         update_task "$TASK_ID" "status" '"verifying"'
         V2=$("$CLAUDE_BIN" --print --dangerously-skip-permissions --model "$MODEL" \
@@ -334,6 +417,22 @@ if m:
     except: print('false')
 else: print('false')
 " 2>/dev/null || echo "false")
+        R2=$(echo "$V2" | python3 -c "
+import json,sys,re; text=sys.stdin.read()
+m=re.search(r'\{.*\"passed\".*\}',text,re.DOTALL)
+if m:
+    try: print(json.loads(m.group()).get('reason',''))
+    except: print('')
+else: print('')
+" 2>/dev/null || echo "")
+
+        ITER_NUM=$((ITER_NUM + 1))
+        V2_ENTRY=$(python3 -c "
+import json,sys
+entry={'iteration':int(sys.argv[1]),'timestamp':sys.argv[2],'type':'verification','passed':sys.argv[3]=='true','reason':sys.argv[4],'model':sys.argv[5]}
+print(json.dumps(entry))
+" "$ITER_NUM" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$P2" "$R2" "$MODEL" 2>/dev/null || echo '{}')
+        append_iteration "$TASK_ID" "$V2_ENTRY"
 
         if [ "$P2" = "true" ]; then
           update_task "$TASK_ID" "status" '"done"'
