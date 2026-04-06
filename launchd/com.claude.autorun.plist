@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claude.autorun</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/ayushpuri/claude-auto/executor.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <!-- Session 1: Morning 8:30 AM -->
+    <dict>
+      <key>Hour</key>
+      <integer>8</integer>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+    <!-- Session 2: Afternoon 1:30 PM -->
+    <dict>
+      <key>Hour</key>
+      <integer>13</integer>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+    <!-- Session 3: Evening 6:30 PM -->
+    <dict>
+      <key>Hour</key>
+      <integer>18</integer>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+    <!-- Session 4: Night 11:30 PM -->
+    <dict>
+      <key>Hour</key>
+      <integer>23</integer>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+    <!-- Session 5: Early Morning 4:30 AM -->
+    <dict>
+      <key>Hour</key>
+      <integer>4</integer>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>/Users/ayushpuri/claude-auto/logs/launchd_stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ayushpuri/claude-auto/logs/launchd_stderr.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/ayushpuri/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>/Users/ayushpuri</string>
+  </dict>
+</dict>
+</plist>

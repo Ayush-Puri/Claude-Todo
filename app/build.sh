@@ -109,14 +109,15 @@ fi
 # Clean up build artifacts
 rm -f "${BUILD_DIR}/ClaudeTaskRunner"
 
-# === Step 5: Install launchd schedules ===
+# === Step 5: Install launchd schedules via packaged installer ===
 echo ""
-echo "Setting up scheduled sessions..."
+echo "Installing launchd jobs..."
+bash "${SOURCE_DIR}/launchd/install.sh"
 
-PLIST_DIR="$HOME/Library/LaunchAgents"
-mkdir -p "$PLIST_DIR"
-
-cat > "${PLIST_DIR}/com.claude.autorun.plist" <<LAUNCHD
+# === Step 6: Register with LaunchServices ===
+# (skip inline plist generation — handled by launchd/install.sh)
+if false; then
+cat > /dev/null <<LAUNCHD
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -174,17 +175,11 @@ cat > "${PLIST_DIR}/com.claude.caffeinate.plist" <<'CAFFPLIST'
   <true/>
 </dict>
 </plist>
-CAFFPLIST
+LAUNCHD
+fi
+# (end of skipped inline plist block)
 
-launchctl unload "${PLIST_DIR}/com.claude.autorun.plist" 2>/dev/null || true
-launchctl load "${PLIST_DIR}/com.claude.autorun.plist" 2>/dev/null
-launchctl unload "${PLIST_DIR}/com.claude.caffeinate.plist" 2>/dev/null || true
-launchctl load "${PLIST_DIR}/com.claude.caffeinate.plist" 2>/dev/null
-
-echo "  ✓ Scheduled sessions: 8:30, 13:30, 18:30, 23:30, 4:30"
-echo "  ✓ Sleep prevention enabled"
-
-# === Step 6: Register with LaunchServices ===
+# Register with LaunchServices
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "${APP_DIR}" 2>/dev/null || true
 
 # === Done ===
