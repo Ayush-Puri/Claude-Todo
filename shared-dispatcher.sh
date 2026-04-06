@@ -313,6 +313,18 @@ with open(output_path, 'w') as f:
 print(f'Response written: {output_path}')
 " "$BATCH_NAME" "$TIMESTAMP" "$RAW_LOG_DIR" "$RUNNING_FILE" "$OUTPUT_FILE" 2>&1 | tee -a "$MASTER_LOG" || log "  Warning: response packaging failed"
 
+  # === Post to Slack if batch has slackContext ===
+  local HAS_SLACK=$(python3 -c "
+import json,sys
+d=json.load(open(sys.argv[1]))
+print('yes' if d.get('slackContext',{}).get('channelId') else 'no')
+" "$RUNNING_FILE" 2>/dev/null || echo "no")
+
+  if [ "$HAS_SLACK" = "yes" ]; then
+    log "  Posting response to Slack thread..."
+    "$HOME/claude-auto/slack-responder.sh" "$OUTPUT_FILE" "$RUNNING_FILE" 2>&1 | tee -a "$MASTER_LOG" || log "  Warning: Slack response failed"
+  fi
+
   # Move to done/ or failed/
   if [ "$ALL_PASSED" = "true" ]; then
     mv "$RUNNING_FILE" "$SHARED_REPO_DIR/done/$(basename "$RUNNING_FILE")"
