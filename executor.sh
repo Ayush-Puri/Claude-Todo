@@ -204,10 +204,25 @@ print(json.dumps(result))
 # === Collect pending tasks ===
 TASK_IDS=$(python3 -c "
 import json, sys
+from datetime import date
+
 data = json.load(open(sys.argv[1]))
+today = date.today().isoformat()
+
 for t in data['tasks']:
-    if t['status'] in ('pending', 'failed'):
-        print(t['id'])
+    # Must be pending or failed
+    if t['status'] not in ('pending', 'failed'):
+        continue
+    # Must be marked active
+    if not t.get('active', False):
+        continue
+    # Skip if scheduled for a future date (today and past dates are OK)
+    sched_date = t.get('scheduledDate', '')
+    if sched_date and sched_date > today:
+        continue
+    # Tasks scheduled for today with a specific time are included —
+    # the executor's wait-for-scheduled-time loop handles the countdown
+    print(t['id'])
 " "$ACTIVE_FILE")
 
 if [ -z "$TASK_IDS" ]; then
