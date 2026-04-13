@@ -138,7 +138,9 @@
   .task-schedule-row label { font-size:10px; color:var(--text-500); }
   .task-meta { display:flex; justify-content:space-between; margin-top:5px; font-size:10px; color:var(--text-500); font-family:var(--font-mono); }
   .status-badge { font-size:9px; font-weight:600; padding:2px 6px; border-radius:4px; text-transform:uppercase; letter-spacing:0.3px; flex-shrink:0; }
-  .status-running { background:var(--blue-bg); color:var(--blue); }
+  .status-running { background:var(--blue-bg); color:var(--blue); animation:pulse-status 2s ease-in-out infinite; }
+  @keyframes pulse-status { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+  .status-done { background:var(--success-bg); color:var(--success); }
   .status-verifying { background:rgba(251,191,36,0.15); color:#fbbf24; }
   .status-done { background:var(--success-bg); color:var(--success); }
   .status-failed { background:var(--danger-bg); color:var(--danger); }
@@ -287,7 +289,8 @@ function saveGroupToFile(secId){
       id:t.id, title:t.title, prompt:t.prompt||'', status:t.status||'pending',
       verification:t.verification||'', expectedResult:t.expectedResult||'',
       retryCount:t.retryCount||0, logs:t.logs||{sessionId:null,startedAt:null,completedAt:null},
-      scheduledDate:t.scheduledDate||'', scheduledTime:t.scheduledTime||''
+      scheduledDate:t.scheduledDate||'', scheduledTime:t.scheduledTime||'',
+      active:t.active||false
     }))
   };
   window.webkit.messageHandlers.nativeBridge.postMessage({action:'saveGroup',data:file});
@@ -357,10 +360,10 @@ function render(){
             <button class="btn" onclick="clearSelection()">Clear</button>
           </div>
           <div class="main-header-actions">
-            <button class="btn btn-green" onclick="bulkMoveTo('done')">&#10003; Done</button>
-            ${state.sections.filter(s=>s.id!==activeSection&&s.id!=='done').map(s=>
-              `<button class="btn" onclick="bulkMoveTo('${s.id}')">${esc(s.name)}</button>`
-            ).join('')}
+            <button class="btn btn-accent" onclick="executeSelected()">&#9654; Execute Now</button>
+            <button class="btn btn-green" onclick="bulkSetActive(true)">Active</button>
+            <button class="btn" onclick="bulkSetActive(false)">Inactive</button>
+            <button class="btn" onclick="bulkMoveTo('done')">&#10003; Done</button>
             <button class="btn btn-red" onclick="bulkDelete()">Delete</button>
           </div>
         `:`
@@ -407,11 +410,12 @@ function renderTask(t,idx){
   const isEditing=editingTokenId===t.id;
   const tokens=taskTokens(t);
   const hasSchedule=t.scheduledDate||t.scheduledTime;
-  const statusBadge=(t.status&&t.status!=='pending'&&t.status!=='done')?`<span class="status-badge status-${t.status}">${t.status}</span>`:'';
+  const statusBadge=(t.status&&t.status!=='pending')?`<span class="status-badge status-${t.status}">${t.status}</span>`:'';
 
   return`<div class="task-card ${isDone?'':''}${t._dragging?'dragging':''}" draggable="true" data-task-id="${t.id}">
     <div class="task-card-row" ondblclick="toggleExpand('${t.id}')">
       <span class="grip">&#8942;&#8942;</span>
+      ${t.active?'<span style="width:6px;height:6px;border-radius:50%;background:var(--success);flex-shrink:0;box-shadow:0 0 4px rgba(101,187,48,0.5);"></span>':''}
       <button class="task-check ${selectedTasks.has(t.id)?'checked':''}" onclick="toggleSelect('${t.id}')">${selectedTasks.has(t.id)?'&#10003;':''}</button>
       <input class="task-title-inp" value="${esc(t.title)}" placeholder="Task title..."
         onchange="updateTask('${t.id}','title',this.value)" onblur="onFieldBlur('${activeSection}')">
@@ -500,7 +504,7 @@ function toggleIterOutput(btn,idx,fullText){
 function addTask(){
   const t={id:genId('t'),title:'',prompt:'',status:'pending',sectionId:activeSection==='done'?'todo':activeSection,
     verification:'',expectedResult:'',scheduledDate:'',scheduledTime:'',
-    retryCount:0,logs:{},estimatedTokens:0,manualTokenOverride:null};
+    retryCount:0,logs:{},estimatedTokens:0,manualTokenOverride:null,active:false};
   state.tasks.push(t);
   if(activeSection==='done') activeSection='todo';
   expandedTasks.add(t.id);
@@ -530,6 +534,24 @@ function bulkMoveTo(secId){
   selectedTasks.clear(); saveState(); render();
   showToast(`Moved to ${state.sections.find(s=>s.id===secId)?.name||secId}`,'success');
 }
+function executeSelected(){
+  // Mark selected tasks as active, save, then run
+  selectedTasks.forEach(tid=>{
+    const t=state.tasks.find(x=>x.id===tid);
+    if(t) t.active=true;
+  });
+  saveState();
+  runTasksInTerminal(activeSection);
+  selectedTasks.clear(); render();
+}
+function bulkSetActive(isActive){
+  selectedTasks.forEach(tid=>{
+    const t=state.tasks.find(x=>x.id===tid);
+    if(t) t.active=isActive;
+  });
+  selectedTasks.clear(); saveState(); render();
+  showToast(isActive?'Marked active':'Marked inactive','success');
+}
 function bulkDelete(){
   showModal('Delete selected',`<p>Delete ${selectedTasks.size} task(s)?</p>`,()=>{
     state.tasks=state.tasks.filter(t=>!selectedTasks.has(t.id));
@@ -537,17 +559,22 @@ function bulkDelete(){
   });
 }
 
+let _pendingRender=null;
 function updateTask(tid,field,val){
   const t=state.tasks.find(x=>x.id===tid);
-  if(t){t[field]=val; if(field==='prompt')t.estimatedTokens=estimateTokens(val); saveState();}
-  // Check if scheduledDate is next week → auto-move
+  if(!t)return;
+  t[field]=val;
+  if(field==='prompt') t.estimatedTokens=estimateTokens(val);
+  saveState();
+  // Check if scheduledDate is next week → auto-move (defer render to avoid mid-event DOM rebuild)
   if(field==='scheduledDate'&&val){
     const d=new Date(val+'T00:00:00');
     const now=new Date();
     const nextWeekStart=new Date(now); nextWeekStart.setDate(now.getDate()+(7-now.getDay()));
     const nextWeekEnd=new Date(nextWeekStart); nextWeekEnd.setDate(nextWeekStart.getDate()+7);
     if(d>=nextWeekStart&&d<nextWeekEnd&&t.sectionId!=='next-week'&&t.sectionId!=='done'){
-      t.sectionId='next-week'; showToast('Moved to Next Week','success'); render();
+      t.sectionId='next-week'; showToast('Moved to Next Week','success');
+      clearTimeout(_pendingRender); _pendingRender=setTimeout(render,300);
     }
   }
 }
@@ -692,7 +719,16 @@ window._onGroupsLoaded = function(jsonStr) {
     });
     if (changed) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      render();
+      // Defer render to avoid clobbering active input focus
+      if (!document.activeElement || document.activeElement === document.body) {
+        render();
+      } else {
+        // User is actively editing — defer render until they blur
+        clearTimeout(_pendingRender);
+        _pendingRender = setTimeout(() => {
+          if (!document.activeElement || document.activeElement === document.body) render();
+        }, 2000);
+      }
     }
   } catch (e) { console.error('_onGroupsLoaded error:', e); }
 };

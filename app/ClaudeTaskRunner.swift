@@ -177,9 +177,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // WKWebView config with message handler
         let config = WKWebViewConfiguration()
-        let storeID = UUID(uuidString: "C1A0DE00-C0DE-0000-A000-000000000001")!
-        let store = WKWebsiteDataStore(forIdentifier: storeID)
-        config.websiteDataStore = store
+        // Non-persistent store — avoids Downloads folder permission prompt
+        // App persistence is handled via native bridge (JSON files), not WKWebView storage
+        config.websiteDataStore = WKWebsiteDataStore.nonPersistent()
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         config.userContentController.add(bridge, name: "nativeBridge")
 
